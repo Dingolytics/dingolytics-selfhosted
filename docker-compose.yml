@@ -1,0 +1,147 @@
+version: '3.9'
+
+x-caddy-environment: &caddy-environment
+  WEB_HOST: $WEB_HOST
+  WEB_HOST_LETSENCRYPT_EMAIL: $WEB_HOST_LETSENCRYPT_EMAIL
+
+x-app-environment: &app-environment
+  LOG_LEVEL: "INFO"
+  DATASOURCE_SECRET_KEY: $DATASOURCE_SECRET_KEY
+  SECRET_KEY: $SECRET_KEY
+  SQLALCHEMY_DATABASE_URI: postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres/$POSTGRES_DB
+  RATELIMIT_ENABLED: "false"
+  ENFORCE_CSRF: $ENFORCE_CSRF
+  REDIS_URL: "redis://redis:6379/0"
+  CLICKHOUSE_DB: $CLICKHOUSE_DB
+  CLICKHOUSE_USER: $CLICKHOUSE_USER
+  CLICKHOUSE_PASSWORD: $CLICKHOUSE_PASSWORD
+  VECTOR_INGEST_URL: "https://${WEB_HOST}"
+  VECTOR_CONFIG_PATH: "/home/redash/etc/vector/vector.toml"
+
+services:
+  caddy:
+    restart: unless-stopped
+    build:
+      context: ./etc/caddy
+    environment:
+      <<: *caddy-environment
+    ports:
+      # Ports for local development:
+      - "127.0.0.1:8001:8001"
+      # Ports for production:
+      # - "80:80"
+      # - "443:443"
+      # - "443:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+      - caddy-www:/var/www/dingolytics:ro
+
+  clickhouse:
+    restart: unless-stopped
+    build:
+      context: ./etc/clickhouse
+    environment:
+      CLICKHOUSE_DB: $CLICKHOUSE_DB
+      CLICKHOUSE_USER: $CLICKHOUSE_USER
+      CLICKHOUSE_PASSWORD: $CLICKHOUSE_PASSWORD
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+      CLICKHOUSE_INIT_TIMEOUT: 60
+    cap_add:
+      - NET_ADMIN
+      - SYS_NICE
+      - IPC_LOCK
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/val/log/clickhouse-server
+
+  redis:
+    image: redis:7.2.4-alpine3.19
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+  postgres:
+    image: postgres:15.2-alpine
+    restart: unless-stopped
+    environment:
+      PGDATA: /var/data/pgdata
+      POSTGRES_DB: $POSTGRES_DB
+      POSTGRES_USER: $POSTGRES_USER
+      POSTGRES_PASSWORD: $POSTGRES_PASSWORD
+    volumes:
+      - pg-data-15:/var/lib/postgresql/data/pgdata
+
+  vector:
+    image: timberio/vector:0.36.X-alpine
+    restart: unless-stopped
+    environment:
+      VECTOR_WATCH_CONFIG: /etc/vector/vector.toml
+    volumes:
+      - vector-data:/var/lib/vector
+      # - vector-etc:/etc/vector:ro
+      - ./var/vector:/home/redash/etc/vector:ro
+    # For debugging purposes open ports locally:
+    # ports:
+    #   - "127.0.0.1:8180:8180"
+    command: --watch-config
+
+  app-server:
+    image: dingolytics/dingolytics:$DINGOLYTICS_IMAGE_TAG
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    # For debugging purposes open ports locally:
+    ports:
+      - "127.0.0.1:5000:5000"
+      - "127.0.0.1:5678:5678"
+    environment:
+      <<: *app-environment
+      GUNICORN_TIMEOUT: 60
+      GUNICORN_WEB_WORKERS: 4
+      PYTHONUNBUFFERED: 0
+    volumes:
+      - caddy-www:/var/www/dingolytics:ro
+      # - vector-etc:/home/redash/etc/vector
+      - ./var/vector:/home/redash/etc/vector
+    # command: server
+    command: gunicorn -b 0.0.0.0:5000 --name redash -w4 redash.main:app --preload
+
+  app-scheduler:
+    image: dingolytics/dingolytics:$DINGOLYTICS_IMAGE_TAG
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      QUEUES: "celery"
+      WORKERS_COUNT: 1
+    command: scheduler
+
+  app-worker:
+    image: dingolytics/dingolytics:$DINGOLYTICS_IMAGE_TAG
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      QUEUES: "scheduled_queries,schemas"
+      WORKERS_COUNT: 1
+    command: worker
+
+  app-adhoc-worker:
+    image: dingolytics/dingolytics:$DINGOLYTICS_IMAGE_TAG
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      QUEUES: "queries"
+      WORKERS_COUNT: 2
+    command: worker
+
+volumes:
+  pg-data-15:
+  caddy-config:
+  caddy-data:
+  caddy-www:
+  redis-data:
+  clickhouse-data:
+  clickhouse-logs:
+  vector-data:
+  # vector-etc:

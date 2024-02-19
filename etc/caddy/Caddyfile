@@ -1,0 +1,54 @@
+{$WEB_HOST} {
+	tls {$WEB_HOST_LETSENCRYPT_EMAIL}
+
+    @options {
+        method OPTIONS
+    }
+
+    @app {
+        path /login /logout /setup /status.json /api/* /ext/* /embed/* /oauth/* /invite/* /static/*
+    }
+
+    @ingest {
+        path /ingest/*
+    }
+
+    @pages {
+        path /streams* /queries* /dashboards* /alerts* /users* /settings* /groups* /data-sources* /destinations* /query-snippets*
+    }
+
+    route @app {
+        reverse_proxy http://app-server:5000 {
+            header_up X-Real-IP {remote}
+            header_up X-Forwarded-Host {host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    header @ingest {
+        Access-Control-Allow-Origin *
+        Access-Control-Allow-Methods "OPTIONS, HEAD, GET, POST"
+        Access-Control-Allow-Headers "Origin, Accept, Content-Type"
+    }
+
+    route @ingest {
+        handle @options {
+            respond 204
+        }
+        reverse_proxy http://vector:8180 {
+            header_up X-Real-IP {remote}
+            header_up X-Forwarded-Host {host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    rewrite @pages /index.html
+
+    log {
+        level INFO
+    }
+
+    file_server {
+        root /var/www/dingolytics
+    }
+}

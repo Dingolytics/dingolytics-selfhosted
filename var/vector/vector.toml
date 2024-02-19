@@ -1,0 +1,46 @@
+data_dir = "/var/lib/vector"
+
+[api]
+enabled = true
+
+[sources.vector_internal_logs]
+type = "internal_logs"
+
+[sources.http_server]
+type = "http_server"
+address = "0.0.0.0:8180"
+path_key = "_path_"
+strict_path = false
+method = "POST"
+path = "/ingest"
+
+[sinks.console]
+type = "console"
+inputs = [ "http_server", "vector_internal_logs",]
+
+[sinks.sink-vector-logs]
+database = "default"
+table = "vector_logs"
+type = "clickhouse"
+inputs = [ "vector_internal_logs",]
+endpoint = "http://clickhouse:8123"
+
+[transforms.http_router]
+type = "route"
+inputs = [ "http_server",]
+
+[sources.http_server.decoding]
+codec = "json"
+
+[sinks.console.encoding]
+codec = "json"
+
+[sinks.sink-vector-logs.auth]
+strategy = "basic"
+user = "default"
+password = "eJ8hVud56c8yy66J9jf63x7vSYct"
+
+[sinks.sink-vector-logs.encoding]
+timestamp_format = "rfc3339"
+
+[transforms.http_router.route]
