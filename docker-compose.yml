@@ -73,14 +73,14 @@ services:
       - pg-data-15:/var/lib/postgresql/data/pgdata
 
   vector:
-    image: timberio/vector:0.36.X-alpine
+    image: timberio/vector:0.30.X-alpine
     restart: unless-stopped
     environment:
       VECTOR_WATCH_CONFIG: /etc/vector/vector.toml
     volumes:
       - vector-data:/var/lib/vector
       # - vector-etc:/etc/vector:ro
-      - ./var/vector:/home/redash/etc/vector:ro
+      - ./var/vector:/etc/vector:ro
     # For debugging purposes open ports locally:
     # ports:
     #   - "127.0.0.1:8180:8180"
@@ -105,8 +105,7 @@ services:
       - caddy-www:/var/www/dingolytics:ro
       # - vector-etc:/home/redash/etc/vector
       - ./var/vector:/home/redash/etc/vector
-    # command: server
-    command: gunicorn -b 0.0.0.0:5000 --name redash -w4 redash.main:app --preload
+    command: server
 
   app-scheduler:
     image: dingolytics/dingolytics:$DINGOLYTICS_IMAGE_TAG
